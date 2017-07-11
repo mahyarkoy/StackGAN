@@ -7,6 +7,7 @@ import numpy as np
 import scipy.misc
 import os
 import sys
+import json
 from six.moves import range
 from progressbar import ETA, Bar, Percentage, ProgressBar
 from PIL import Image, ImageDraw, ImageFont
@@ -60,14 +61,14 @@ class CondGANTrainer(object):
     def build_placeholder(self):
         '''Helper function for init_opt'''
         self.hr_images = tf.placeholder(
-            tf.float32, [self.batch_size] + self.hr_image_shape,
+            tf.float32, [None] + self.hr_image_shape,
             name='real_hr_images')
         self.hr_wrong_images = tf.placeholder(
-            tf.float32, [self.batch_size] + self.hr_image_shape,
+            tf.float32, [None] + self.hr_image_shape,
             name='wrong_hr_images'
         )
         self.embeddings = tf.placeholder(
-            tf.float32, [self.batch_size] + self.dataset.embedding_shape,
+            tf.float32, [None] + self.dataset.embedding_shape,
             name='conditional_embeddings'
         )
 
@@ -111,7 +112,7 @@ class CondGANTrainer(object):
             # ####get output from G network####################################
             with tf.variable_scope("g_net"):
                 c, kl_loss = self.sample_encoded_context(self.embeddings)
-                z = tf.random_normal([self.batch_size, cfg.Z_DIM])
+                z = tf.random_normal([tf.shape(self.embeddings)[0], cfg.Z_DIM])
                 self.log_vars.append(("hist_c", c))
                 self.log_vars.append(("hist_z", z))
                 fake_images = self.model.get_generator(tf.concat(1, [c, z]))
@@ -151,18 +152,27 @@ class CondGANTrainer(object):
 
         with pt.defaults_scope(phase=pt.Phase.test):
             self.sampler()
+            self.critic()
             self.visualization(cfg.TRAIN.NUM_COPY)
             print("success")
 
     def sampler(self):
         with tf.variable_scope("g_net", reuse=True):
             c, _ = self.sample_encoded_context(self.embeddings)
-            z = tf.random_normal([self.batch_size, cfg.Z_DIM])
+            z = tf.random_normal([tf.shape(self.embeddings)[0], cfg.Z_DIM])
             self.fake_images = self.model.get_generator(tf.concat(1, [c, z]))
         with tf.variable_scope("hr_g_net", reuse=True):
             hr_c, _ = self.sample_encoded_context(self.embeddings)
             self.hr_fake_images =\
                 self.model.hr_get_generator(self.fake_images, hr_c)
+
+    def critic(self):
+        with tf.variable_scope("g_net", reuse=True):
+            self.critic_logits =\
+                self.model.get_discriminator(self.images, self.embeddings)
+        with tf.variable_scope("hr_g_net", reuse=True):
+            self.hr_critic_logits =\
+                self.model.hr_get_discriminator(self.hr_images, self.embeddings)
 
     def compute_losses(self, images, wrong_images,
                        fake_images, embeddings, flag='lr'):
@@ -482,7 +492,7 @@ class CondGANTrainer(object):
                 discriminator_lr = cfg.TRAIN.DISCRIMINATOR_LR
                 lr_decay_step = cfg.TRAIN.LR_DECAY_EPOCH
                 number_example = self.dataset.train._num_examples
-                updates_per_epoch = int(number_example / self.batch_size)
+                updates_per_epoch = int(np.ceil(number_example * 1.0 / self.batch_size))
                 # int((counter + lr_decay_step/2) / lr_decay_step)
                 decay_start = cfg.TRAIN.PRETRAINED_EPOCH
                 epoch_start = int(counter / updates_per_epoch)
@@ -667,3 +677,65 @@ class CondGANTrainer(object):
                                           self.log_dir, subset='test')
                 else:
                     print("Input a valid model path.")
+
+    def zero_shot_eval(self):
+        config = tf.ConfigProto(allow_soft_placement=True)
+        with tf.Session(config=config) as sess:
+            with tf.device("/gpu:%d" % cfg.GPU_ID):
+                if self.model_path.find('.ckpt') != -1:
+                    self.init_opt()
+                    print(">>>Zero shot evaluation started")
+                    print("Reading model parameters from %s" % self.model_path)
+                    saver = tf.train.Saver(tf.all_variables())
+                    saver.restore(sess, self.model_path)
+                    # self.eval_one_dataset(sess, self.dataset.train,
+                    #                       self.log_dir, subset='train')
+                    self.zs_eval_one_dataset(sess, self.dataset.test,
+                                          'zsl_logs/logs', subset='test')
+                else:
+                    print("Input a valid model path.")
+
+    def zs_eval_one_dataset(self, sess, dataset, save_dir, subset='train'):
+        '''for each image, go through all embeddings'''
+        ### read images, class_ids and embeddings(10 per image) from dataset
+        ### flat embeddings
+        embeddings = dataset._embeddings
+        embeddings_flat = embeddings.reshape([embeddings.shape[0]*embeddings.shape[1], embeddings.shape[2]])
+        class_ids = dataset._class_id.astype(int)
+        class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
+        filenames = dataset._filenames
+        images = dataset._images
+
+        ### for each image, pair with all embeddings in several batches
+        batch_count = 0
+        for batch_start in range(0, embeddings_flat.shape[0], self.batch_size):
+            batch_end = batch_start + self.batch_size
+            batch_embeddings = embeddings_flat[batch_start:batch_end]
+            batch_sent_cids = class_ids_extend[batch_start:batch_end]
+            this_batch_size = batch_embeddings.shape[0]
+            ## read filenames corresponding to current batch embeddings
+            bid = batch_start
+            batch_caps = list()
+            while bid < batch_end:
+                fn = filenames[batch_start // embeddings.shape[1]]
+                cap_path = '%s/text_c10/%s.txt' % (dataset.workdir, fn)
+                with open(cap_path, 'r') as fs:
+                    for lid, cap in enumerate(fs):
+                        if lid == bid % embeddings.shape[1]:
+                            batch_caps.append(cap)
+                        bid += 1
+            for im, c in zip(images, class_ids):
+                ## tile one image as many as embeddings in the batch
+                batch_images = np.tile(im, (this_batch_size,1,1,1))
+                batch_im_cids = np.tile([c],this_batch_size)
+            
+            hr_critic_logits, critic_logits =\
+                sess.run([self.hr_critic_logits, self.critic_logits],
+                         {self.embeddings: batch_embeddings, self.hr_images: batch_images})
+            batch_preds = [{'im_name': im, 'im_cid': imc, 'sent_cid':sc, 'hr_prob': hr_ds, 'prob': ds, 'parses': p}\
+                            for im, imc, sc, hr_ds, ds, p in\
+                            zip(filenames[batch_start:batch_end], batch_im_cids, batch_sent_cids, hr_critic_logits, critic_logits, batch_caps)]
+            with open('%s/%d.json' % (save_dir, batch_count), 'w+') as fj:
+                print >>fj, json.dumps(batch_preds, indent=4)
+            batch_count += 1
+

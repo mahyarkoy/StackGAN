@@ -69,6 +69,12 @@ if __name__ == "__main__":
 
     if cfg.TRAIN.FLAG:
         algo.train()
+    elif cfg.ZEROSHOT.FLAG:
+        '''
+        For every input image in test dataset, calculate conditional probability given
+        every sentence of all classes.
+        '''
+        algo.zero_shot_eval()
     else:
         ''' For every input text embedding/sentence in the
         training and test datasets, generate cfg.TRAIN.NUM_COPY

@@ -21,6 +21,30 @@ IMSIZE = 256
 LOAD_SIZE = int(IMSIZE * 76 / 64)
 BIRD_DIR = 'Data/birds'
 
+def split_train_test(data_dir):
+    ftag_path = data_dir + '/CUB_200_2011/train_test_split.txt'
+    fname_path = data_dir + '/CUB_200_2011/images.txt'
+    train_path = data_dir + '/train'
+    test_path = data_dir + '/test'
+    os.system('mkdir -p '+train_path)
+    os.system('mkdir -p '+test_path)
+    train_list = list()
+    test_list = list()
+    with open(ftag_path, 'r') as ftags, open(fname_path, 'r') as fnames:
+        for tl, nl in zip(ftags, fnames):
+            tag = int(tl.strip().split(' ')[-1])
+            name = nl.strip().split(' ')[-1]
+            if tag == 1:
+                train_list.append(name[:-4])
+            else:
+                test_list.append(name[:-4])
+    print('>>> train_list len: ', len(train_list))
+    print('>>> test_list len: ', len(test_list))
+    with open(train_path+'/filenames.pickle', 'wb') as fp:
+        pickle.dump(train_list, fp)
+    with open(test_path+'/filenames.pickle', 'wb') as fp:
+        pickle.dump(test_list, fp)
+
 
 def load_filenames(data_dir):
     filepath = data_dir + 'filenames.pickle'
@@ -98,4 +122,5 @@ def convert_birds_dataset_pickle(inpath):
 
 
 if __name__ == '__main__':
+    #split_train_test(BIRD_DIR)
     convert_birds_dataset_pickle(BIRD_DIR)
