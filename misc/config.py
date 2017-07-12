@@ -51,6 +51,10 @@ __C.TRAIN.COEFF.KL = 2.0
 __C.TRAIN.FINETUNE_LR = False
 __C.TRAIN.FT_LR_RETIO = 0.1
 
+# Zero shot opions
+__C.ZEROSHOT = edict()
+__C.ZEROSHOT.FLAG = False
+
 # Modal options
 __C.GAN = edict()
 __C.GAN.EMBEDDING_DIM = 128
