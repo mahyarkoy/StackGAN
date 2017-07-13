@@ -1,3 +1,4 @@
 *.pyc
 ckt_logs
 backup
+*logs

@@ -7,7 +7,7 @@ Z_DIM: 100
 
 TRAIN:
     FLAG: False
-    PRETRAINED_MODEL: './Data/model_164000.ckpt'
+    PRETRAINED_MODEL: './Data/birds_model_164000.ckpt'
     PRETRAINED_EPOCH: 600
     BATCH_SIZE: 100
     NUM_COPY: 4

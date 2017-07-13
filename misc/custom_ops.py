@@ -34,8 +34,8 @@ class conv_batch_norm(pt.VarStoreMethod):
                 mean.set_shape((shp,))
                 variance.set_shape((shp,))
 
-                update_moving_mean = moving_averages.assign_moving_average(self.mean, mean, decay)
-                update_moving_variance = moving_averages.assign_moving_average(self.variance, variance, decay)
+                update_moving_mean = moving_averages.assign_moving_average(self.mean, mean, decay, zero_debias=False)
+                update_moving_variance = moving_averages.assign_moving_average(self.variance, variance, decay, zero_debias=False)
 
                 with tf.control_dependencies([update_moving_mean, update_moving_variance]):
                     normalized_x = tf.nn.batch_norm_with_global_normalization(

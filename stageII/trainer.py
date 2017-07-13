@@ -11,6 +11,8 @@ import json
 from six.moves import range
 from progressbar import ETA, Bar, Percentage, ProgressBar
 from PIL import Image, ImageDraw, ImageFont
+import pickle
+from misc.utils import transform as image_transform
 
 
 from misc.config import cfg
@@ -107,7 +109,7 @@ class CondGANTrainer(object):
 
     def init_opt(self):
         self.build_placeholder()
-
+        '''
         with pt.defaults_scope(phase=pt.Phase.train):
             # ####get output from G network####################################
             with tf.variable_scope("g_net"):
@@ -149,11 +151,11 @@ class CondGANTrainer(object):
             self.prepare_trainer(discriminator_loss, generator_loss,
                                  hr_discriminator_loss, hr_generator_loss)
             self.define_summaries()
-
+        '''
         with pt.defaults_scope(phase=pt.Phase.test):
-            self.sampler()
+            #self.sampler()
             self.critic()
-            self.visualization(cfg.TRAIN.NUM_COPY)
+            #self.visualization(cfg.TRAIN.NUM_COPY)
             print("success")
 
     def sampler(self):
@@ -679,12 +681,18 @@ class CondGANTrainer(object):
     def zero_shot_eval(self):
         config = tf.ConfigProto(allow_soft_placement=True)
         with tf.Session(config=config) as sess:
-            with tf.device("/gpu:%d" % cfg.GPU_ID):
+            with tf.device("/cpu:0"):#%d" % cfg.GPU_ID):
                 if self.model_path.find('.ckpt') != -1:
                     self.init_opt()
+                    #sess.run(tf.global_variables_initializer())
                     print(">>>Zero shot evaluation started")
                     print("Reading model parameters from %s" % self.model_path)
                     saver = tf.train.Saver(tf.global_variables())
+                    with open('zsl_logs/koy_birds_model_dict.pickle', 'wb') as fs:
+                        gvn = [gv.name for gv in tf.global_variables()]
+                        gvs = [gv.shape for gv in tf.global_variables()]
+                        pickle.dump(dict(zip(gvn, gvs)), fs)
+                    #saver.save(sess, 'zsl_logs/koy_birds_model.ckpt')
                     saver.restore(sess, self.model_path)
                     # self.eval_one_dataset(sess, self.dataset.train,
                     #                       self.log_dir, subset='train')
@@ -697,16 +705,21 @@ class CondGANTrainer(object):
         '''for each image, go through all embeddings'''
         ### read images, class_ids and embeddings(10 per image) from dataset
         ### flat embeddings
+        os.system('mkdir -p '+ save_dir)
         embeddings = dataset._embeddings
         embeddings_flat = embeddings.reshape([embeddings.shape[0]*embeddings.shape[1], embeddings.shape[2]])
         class_ids = dataset._class_id.astype(int)
         class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
         filenames = dataset._filenames
         images = dataset._images
-
+        
         ### for each image, pair with all embeddings in several batches
         batch_count = 0
         for batch_start in range(0, embeddings_flat.shape[0], self.batch_size):
+            widgets = ["sent_batch #%d|" % (batch_start*100//embeddings_flat.shape[0]), Percentage(), Bar(), ETA()]
+            pbar = ProgressBar(maxval=images.shape[0], widgets=widgets)
+            pbar.start()
+            
             batch_end = batch_start + self.batch_size
             batch_embeddings = embeddings_flat[batch_start:batch_end]
             batch_sent_cids = class_ids_extend[batch_start:batch_end]
@@ -722,18 +735,25 @@ class CondGANTrainer(object):
                         if lid == bid % embeddings.shape[1]:
                             batch_caps.append(cap)
                         bid += 1
+            ## for each image, batch with current batch embeddings
+            im_count = 0
             for im, c in zip(images, class_ids):
                 ## tile one image as many as embeddings in the batch
-                batch_images = np.tile(im, (this_batch_size,1,1,1))
+                pbar.update(im_count)
+                im_trans = image_transform(im * (2. / 255) - 1, self.hr_image_shape[0], is_crop=False, bbox=None)
+                batch_images = np.tile(im_trans, (this_batch_size,1,1,1))
                 batch_im_cids = np.tile([c],this_batch_size)
-            
-            hr_critic_logits, critic_logits =\
-                sess.run([self.hr_critic_logits, self.critic_logits],
-                         {self.embeddings: batch_embeddings, self.hr_images: batch_images})
-            batch_preds = [{'im_name': im, 'im_cid': imc, 'sent_cid':sc, 'hr_prob': hr_ds, 'prob': ds, 'parses': p}\
-                            for im, imc, sc, hr_ds, ds, p in\
-                            zip(filenames[batch_start:batch_end], batch_im_cids, batch_sent_cids, hr_critic_logits, critic_logits, batch_caps)]
-            with open('%s/%d.json' % (save_dir, batch_count), 'w+') as fj:
-                print >>fj, json.dumps(batch_preds, indent=4)
-            batch_count += 1
+                #print(">>> current_batch_size:", batch_images.shape[0])
+                hr_critic_logits, critic_logits =\
+                    sess.run([self.hr_critic_logits, self.critic_logits],
+                             {self.embeddings: batch_embeddings, self.hr_images: batch_images})
+                hr_critic_logits = hr_critic_logits.flatten().astype(float)
+                critic_logits = critic_logits.flatten().astype(float)
+                batch_preds = [{'im_name': filenames[im_count], 'im_cid': imc, 'sent_cid':sc, 'hr_prob': hr_ds, 'prob': ds, 'parses': p}\
+                                for im, imc, sc, hr_ds, ds, p in\
+                                zip(filenames[batch_start:batch_end], batch_im_cids, batch_sent_cids, hr_critic_logits, critic_logits, batch_caps)]
+                with open('%s/batch_%d.json' % (save_dir, batch_count), 'w+') as fj:
+                    json.dump(batch_preds, fj, indent=4)
+                batch_count += 1
+                im_count += 1
 
