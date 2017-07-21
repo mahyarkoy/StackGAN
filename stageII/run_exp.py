@@ -68,7 +68,11 @@ if __name__ == "__main__":
     )
 
     if cfg.TRAIN.FLAG:
-        algo.train()
+        #algo.train()
+        algo.train_classifier()
+        algo.batch_size = 100
+        alog.zero_shot_eval()
+
     elif cfg.ZEROSHOT.FLAG:
         '''
         For every input image in test dataset, calculate conditional probability given

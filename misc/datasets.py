@@ -72,8 +72,8 @@ class Dataset(object):
                 np.zeros([images.shape[0], self._imsize, self._imsize, 3])
             ori_size = images.shape[1]
             for i in range(images.shape[0]):
-                h1 = np.floor((ori_size - self._imsize) * np.random.random())
-                w1 = np.floor((ori_size - self._imsize) * np.random.random())
+                h1 = np.floor((ori_size - self._imsize) * np.random.random()).astype(int)
+                w1 = np.floor((ori_size - self._imsize) * np.random.random()).astype(int)
                 cropped_image =\
                     images[i][w1: w1 + self._imsize, h1: h1 + self._imsize, :]
                 if random.random() > 0.5:
@@ -109,10 +109,13 @@ class Dataset(object):
             return np.squeeze(sampled_embeddings_array), sampled_captions
 
     def next_batch(self, batch_size, window):
-        """Return the next `batch_size` examples from this data set."""
+        """
+        Return the next `batch_size` examples from this data set.
+        Return (sampled_images, sampled_wrong_images, sampled_embeddings)
+        """
         start = self._index_in_epoch
         self._index_in_epoch += batch_size
-
+        ### if reached the end of data, reshuffle data and start from the begining
         if self._index_in_epoch > self._num_examples:
             # Finished epoch
             self._epochs_completed += 1
@@ -125,14 +128,20 @@ class Dataset(object):
             self._index_in_epoch = batch_size
             assert batch_size <= self._num_examples
         end = self._index_in_epoch
-
+        ### select current data id and generate fake data ids
         current_ids = self._perm[start:end]
         fake_ids = np.random.randint(self._num_examples, size=batch_size)
-        collision_flag =\
-            (self._class_id[current_ids] == self._class_id[fake_ids])
-        fake_ids[collision_flag] =\
-            (fake_ids[collision_flag] +
-             np.random.randint(100, 200)) % self._num_examples
+        collision_try = 0
+        while collision_try < 10:
+            collision_flag =\
+                (self._class_id[current_ids] == self._class_id[fake_ids])
+            collision_count = np.sum(collision_flag)
+            if collision_count == 0:
+                break
+            fake_ids[collision_flag] = np.random.randint(self._num_examples, size=collision_count)
+            collision_try += 1
+        else:
+            print('>>> collision count: %d' % collision_count)
 
         sampled_images = self._images[current_ids]
         sampled_wrong_images = self._images[fake_ids, :, :, :]
