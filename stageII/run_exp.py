@@ -7,6 +7,7 @@ import dateutil.tz
 import datetime
 import argparse
 import pprint
+import os
 
 from misc.datasets import TextDataset
 from stageII.model import CondGAN
@@ -31,6 +32,9 @@ def parse_args():
 
 
 if __name__ == "__main__":
+    os.environ["CUDA_DEVICE_ORDER"]="PCI_BUS_ID"
+    os.environ["CUDA_VISIBLE_DEVICES"]="0, 1"
+
     args = parse_args()
     if args.cfg_file is not None:
         cfg_from_file(args.cfg_file)
