@@ -54,6 +54,7 @@ __C.TRAIN.FT_LR_RETIO = 0.1
 # Zero shot opions
 __C.ZEROSHOT = edict()
 __C.ZEROSHOT.FLAG = False
+__C.ZEROSHOT.SENT_PER_CLASS = 100
 
 # Modal options
 __C.GAN = edict()

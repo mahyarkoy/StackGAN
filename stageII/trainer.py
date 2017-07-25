@@ -783,9 +783,9 @@ class CondGANTrainer(object):
         ### flat embeddings
         os.system('mkdir -p '+ save_dir)
         embeddings = dataset._embeddings
-        embeddings_flat = embeddings.reshape([embeddings.shape[0]*embeddings.shape[1], embeddings.shape[2]])
+        #embeddings_flat = embeddings.reshape([embeddings.shape[0]*embeddings.shape[1], embeddings.shape[2]])
         class_ids = dataset._class_id.astype(int)
-        class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
+        #class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
         filenames = dataset._filenames
         images = dataset._images
         print('>>> embeddings shape:')
@@ -793,6 +793,23 @@ class CondGANTrainer(object):
         
         print('>>> flat embeddings shape:')
         print(embeddings_flat.shape)
+
+        ## list of selected embeddings ids
+        sent_select = list()
+        class_dict = defaultdict(list)
+        for i, c in enumerate(class_ids):
+            class_dict[c].append(i)
+        for c, id_list in class_dict.items():
+            assert class_sent_count < len(id_list), ">>> number of class sentences more that total sentences in that class"
+            choice = np.random.choice(id_list, size=cfg.ZEROSHOT.SENT_PER_CLASS, replace=False)
+            sent_select += choice
+
+        ## select the chosen ids from embeddings, class_ids, and filenames
+        sel_embeddings = embeddings[sent_select,...]
+        embeddings_flat = sel_embeddings.reshape([sel_embeddings.shape[0]*sel_embeddings.shape[1], sel_embeddings.shape[2]])
+        sel_class_ids = class_ids[sent_select,...]
+        class_ids_extend = np.array([sel_class_ids[cid//sel_embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
+        sel_filenames = filenames[sent_select,...]
         
         ### for each image, pair with all embeddings in several batches
         batch_count = 0
@@ -809,7 +826,7 @@ class CondGANTrainer(object):
             bid = batch_start
             batch_caps = list()
             while bid < batch_end:
-                fn = filenames[bid // embeddings.shape[1]]
+                fn = sel_filenames[bid // embeddings.shape[1]]
                 cap_path = '%s/text_c10/%s.txt' % (dataset.workdir, fn)
                 with open(cap_path, 'r') as fs:
                     for lid, cap in enumerate(fs):
@@ -831,8 +848,8 @@ class CondGANTrainer(object):
                 hr_critic_logits = hr_critic_logits.flatten().astype(float)
                 critic_logits = critic_logits.flatten().astype(float)
                 batch_preds = [{'im_name': filenames[im_count], 'im_cid': imc, 'sent_cid':sc, 'hr_prob': hr_ds, 'prob': ds, 'parses': p}\
-                                for im, imc, sc, hr_ds, ds, p in\
-                                zip(filenames[batch_start:batch_end], batch_im_cids, batch_sent_cids, hr_critic_logits, critic_logits, batch_caps)]
+                                for imc, sc, hr_ds, ds, p in\
+                                zip(batch_im_cids, batch_sent_cids, hr_critic_logits, critic_logits, batch_caps)]
                 if len(batch_preds) == 0:
                     print('start:%d --- end:%d' %(batch_start, batch_end))
                     print('filenames: %d' % len(filenames[batch_start:batch_end]))

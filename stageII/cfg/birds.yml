@@ -27,3 +27,4 @@ GAN:
 
 ZEROSHOT:
     FLAG: True
+    SENT_PER_CLASS: 100
