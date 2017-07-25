@@ -13,7 +13,7 @@ from progressbar import ETA, Bar, Percentage, ProgressBar
 from PIL import Image, ImageDraw, ImageFont
 import pickle
 from misc.utils import transform as image_transform
-
+from collections import defaultdict
 
 from misc.config import cfg
 from misc.utils import mkdir_p
@@ -783,28 +783,38 @@ class CondGANTrainer(object):
         ### flat embeddings
         os.system('mkdir -p '+ save_dir)
         embeddings = dataset._embeddings
-        #embeddings_flat = embeddings.reshape([embeddings.shape[0]*embeddings.shape[1], embeddings.shape[2]])
+        embeddings_flat = embeddings.reshape([embeddings.shape[0]*embeddings.shape[1], embeddings.shape[2]])
         class_ids = dataset._class_id.astype(int)
-        #class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
+        class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
         filenames = dataset._filenames
         images = dataset._images
+        ### read all captions for each file
+        cap_list = list()
+        for fn in filenames:
+            cap_path = '%s/text_c10/%s.txt' % (dataset.workdir, fn)
+            with open(cap_path, 'r') as fs:
+                for cap in fs:
+                    cap_list.append(cap)
 
         ## list of selected embeddings ids
         sent_select = list()
         class_dict = defaultdict(list)
-        for i, c in enumerate(class_ids):
+        for i, c in enumerate(class_ids_extend):
             class_dict[c].append(i)
         for c, id_list in class_dict.items():
-            assert class_sent_count < len(id_list), ">>> number of class sentences more that total sentences in that class"
-            choice = np.random.choice(id_list, size=cfg.ZEROSHOT.SENT_PER_CLASS, replace=False)
+            if cfg.ZEROSHOT.SENT_PER_CLASS >= len(id_list) or cfg.ZEROSHOT.SENT_PER_CLASS < 1:
+                print(">>> reading all sentences in each class for zeroshot eval")
+                choice = id_list
+            else:
+                choice = np.random.choice(id_list, size=cfg.ZEROSHOT.SENT_PER_CLASS, replace=False)
             sent_select += choice
 
         ## select the chosen ids from embeddings, class_ids, and filenames
-        sel_embeddings = embeddings[sent_select,...]
-        embeddings_flat = sel_embeddings.reshape([sel_embeddings.shape[0]*sel_embeddings.shape[1], sel_embeddings.shape[2]])
-        sel_class_ids = class_ids[sent_select,...]
-        class_ids_extend = np.array([sel_class_ids[cid//sel_embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
-        sel_filenames = filenames[sent_select,...]
+        sel_embeddings = embeddings_flat[sent_select,...]
+        #embeddings_flat = sel_embeddings.reshape([sel_embeddings.shape[0]*sel_embeddings.shape[1], sel_embeddings.shape[2]])
+        sel_class_ids = class_ids_extend[sent_select,...]
+        #class_ids_extend = np.array([sel_class_ids[cid//sel_embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
+        sel_caps = cap_list[sent_select]
 
         print('>>> embeddings shape:')
         print(sel_embeddings.shape)
@@ -814,18 +824,19 @@ class CondGANTrainer(object):
         
         ### for each image, pair with all embeddings in several batches
         batch_count = 0
-        for batch_start in range(0, embeddings_flat.shape[0], self.batch_size):
-            widgets = ["sent_batch #%d|" % (batch_start*100//embeddings_flat.shape[0]), Percentage(), Bar(), ETA()]
+        for batch_start in range(0, sel_embeddings.shape[0], self.batch_size):
+            widgets = ["sent_batch #%d|" % (batch_start*100//sel_embeddings.shape[0]), Percentage(), Bar(), ETA()]
             pbar = ProgressBar(maxval=images.shape[0], widgets=widgets)
             pbar.start()
             
             batch_end = batch_start + self.batch_size
-            batch_embeddings = embeddings_flat[batch_start:batch_end]
-            batch_sent_cids = class_ids_extend[batch_start:batch_end]
+            batch_embeddings = sel_embeddings[batch_start:batch_end]
+            batch_sent_cids = sel_class_ids[batch_start:batch_end]
             this_batch_size = batch_embeddings.shape[0]
+            batch_caps = sel_caps[batch_start:batch_end]
             ## read filenames corresponding to current batch embeddings
+            '''
             bid = batch_start
-            batch_caps = list()
             while bid < batch_end:
                 fn = sel_filenames[bid // embeddings.shape[1]]
                 cap_path = '%s/text_c10/%s.txt' % (dataset.workdir, fn)
@@ -834,6 +845,7 @@ class CondGANTrainer(object):
                         if lid == bid % embeddings.shape[1]:
                             batch_caps.append(cap)
                             bid += 1
+            '''
             ## for each image, batch with current batch embeddings
             im_count = 0
             for im, c in zip(images, class_ids):
@@ -853,7 +865,6 @@ class CondGANTrainer(object):
                                 zip(batch_im_cids, batch_sent_cids, hr_critic_logits, critic_logits, batch_caps)]
                 if len(batch_preds) == 0:
                     print('start:%d --- end:%d' %(batch_start, batch_end))
-                    print('filenames: %d' % len(filenames[batch_start:batch_end]))
                     print(batch_im_cids.shape)
                     print(batch_sent_cids.shape)
                     print(hr_critic_logits.shape)
