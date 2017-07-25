@@ -788,11 +788,6 @@ class CondGANTrainer(object):
         #class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
         filenames = dataset._filenames
         images = dataset._images
-        print('>>> embeddings shape:')
-        print(embeddings.shape)
-        
-        print('>>> flat embeddings shape:')
-        print(embeddings_flat.shape)
 
         ## list of selected embeddings ids
         sent_select = list()
@@ -810,6 +805,12 @@ class CondGANTrainer(object):
         sel_class_ids = class_ids[sent_select,...]
         class_ids_extend = np.array([sel_class_ids[cid//sel_embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
         sel_filenames = filenames[sent_select,...]
+
+        print('>>> embeddings shape:')
+        print(sel_embeddings.shape)
+        
+        print('>>> flat embeddings shape:')
+        print(embeddings_flat.shape)
         
         ### for each image, pair with all embeddings in several batches
         batch_count = 0
