@@ -109,6 +109,7 @@ class CondGANTrainer(object):
 
     def init_opt(self):
         self.build_placeholder()
+        '''
         with pt.defaults_scope(phase=pt.Phase.train):
             ### Define low and high resolution discriminator
             d_loss = self.make_discriminator(self.images, self.wrong_images, self.embeddings, flag='lr')
@@ -117,6 +118,7 @@ class CondGANTrainer(object):
             self.discriminator_trainer = self.define_one_trainer(d_loss, self.discriminator_lr, 'd_')
             self.hr_discriminator_trainer = self.define_one_trainer(hr_d_loss, self.discriminator_lr, 'hr_d_')
             self.log_vars.append(("hr_d_learning_rate", self.discriminator_lr))
+        '''
         '''
             # ####get output from G network####################################
             with tf.variable_scope("g_net"):
@@ -160,10 +162,10 @@ class CondGANTrainer(object):
             self.define_summaries()
         '''
         ### collect summaries
-        self.define_summaries()
+        #self.define_summaries()
         with pt.defaults_scope(phase=pt.Phase.test):
             #self.sampler()
-            #self.critic()
+            self.critic()
             ### make accuracy evaluations
             self.eval_discriminator(self.images, self.wrong_images, self.embeddings, flag='lr')
             self.eval_discriminator(self.hr_images, self.hr_wrong_images, self.embeddings, flag='hr')
@@ -755,7 +757,7 @@ class CondGANTrainer(object):
     def zero_shot_eval(self):
         config = tf.ConfigProto(allow_soft_placement=True)
         with tf.Session(config=config) as sess:
-            with tf.device("/cpu:0"):#%d" % cfg.GPU_ID):
+            with tf.device("/gpu:%d" % cfg.GPU_ID):
                 if self.model_path.find('.ckpt') != -1:
                     self.init_opt()
                     #sess.run(tf.global_variables_initializer())
@@ -786,6 +788,11 @@ class CondGANTrainer(object):
         class_ids_extend = np.array([class_ids[cid//embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
         filenames = dataset._filenames
         images = dataset._images
+        print('>>> embeddings shape:')
+        print(embeddings.shape)
+        
+        print('>>> flat embeddings shape:')
+        print(embeddings_flat.shape)
         
         ### for each image, pair with all embeddings in several batches
         batch_count = 0
@@ -826,6 +833,14 @@ class CondGANTrainer(object):
                 batch_preds = [{'im_name': filenames[im_count], 'im_cid': imc, 'sent_cid':sc, 'hr_prob': hr_ds, 'prob': ds, 'parses': p}\
                                 for im, imc, sc, hr_ds, ds, p in\
                                 zip(filenames[batch_start:batch_end], batch_im_cids, batch_sent_cids, hr_critic_logits, critic_logits, batch_caps)]
+                if len(batch_preds) == 0:
+                    print('start:%d --- end:%d' %(batch_start, batch_end))
+                    print('filenames: %d' % len(filenames[batch_start:batch_end]))
+                    print(batch_im_cids.shape)
+                    print(batch_sent_cids.shape)
+                    print(hr_critic_logits.shape)
+                    print(critic_logits.shape)
+                    print('batch caps: %d' % len(batch_caps))
                 with open('%s/batch_%d.json' % (save_dir, batch_count), 'w+') as fj:
                     json.dump(batch_preds, fj, indent=4)
                 batch_count += 1
@@ -899,10 +914,8 @@ class CondGANTrainer(object):
                 lr_decay_step = cfg.TRAIN.LR_DECAY_EPOCH
                 number_example = self.dataset.train._num_examples
                 number_example_eval = self.dataset.test._num_examples
-                #updates_per_epoch = int(np.ceil(number_example * 1.0 / self.batch_size))
-                #updates_per_epoch_eval = int(np.ceil(number_example_eval * 1.0 / self.batch_size))
-                updates_per_epoch = 2
-                updates_per_epoch_eval = 2
+                updates_per_epoch = int(np.ceil(number_example * 1.0 / self.batch_size))
+                updates_per_epoch_eval = int(np.ceil(number_example_eval * 1.0 / self.batch_size))
                 # int((counter + lr_decay_step/2) / lr_decay_step)
                 decay_start = cfg.TRAIN.PRETRAINED_EPOCH
                 epoch_start = int(counter / updates_per_epoch)
