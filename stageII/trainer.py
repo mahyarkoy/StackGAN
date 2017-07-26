@@ -232,9 +232,9 @@ class CondGANTrainer(object):
             wrong_logit =\
                 self.model.hr_get_discriminator(wrong_images, embeddings)
 
-        real_preds = tf.cast(tf.greater(real_logit,0.5), tf.float32)
+        real_preds = tf.cast(tf.greater_equal(real_logit,0.0), tf.float32)
         real_preds = tf.reduce_mean(real_preds)
-        wrong_preds = tf.cast(tf.less(wrong_logit,0.5), tf.float32)
+        wrong_preds = tf.cast(tf.less(wrong_logit,0.0), tf.float32)
         wrong_preds = tf.reduce_mean(wrong_preds)
         #_, real_acc = tf.metrics.accuracy(labels=tf.ones_like(real_preds), predictions=real_preds)
         #_, wrong_acc = tf.metrics.accuracy(labels=tf.zeros_like(wrong_preds), predictions=wrong_preds)
@@ -794,7 +794,7 @@ class CondGANTrainer(object):
             cap_path = '%s/text_c10/%s.txt' % (dataset.workdir, fn)
             with open(cap_path, 'r') as fs:
                 for cap in fs:
-                    cap_list.append(cap)
+                    cap_list.append(cap.strip())
 
         ## list of selected embeddings ids
         sent_select = list()
@@ -896,7 +896,7 @@ class CondGANTrainer(object):
         log_vals = ret_list[4]
         return log_vals
 
-    def eval_classifier_one_step(self, discriminator_lr, sess):
+    def eval_classifier_one_step(self, sess):
         # training high resolution discriminator
         hr_images, hr_wrong_images, embeddings, _, _ =\
             self.dataset.test.next_batch(self.batch_size,
@@ -904,7 +904,6 @@ class CondGANTrainer(object):
         feed_dict = {self.hr_images: hr_images,
                      self.hr_wrong_images: hr_wrong_images,
                      self.embeddings: embeddings,
-                     self.discriminator_lr: discriminator_lr
                      }
 
         for k, v in self.log_vars:
@@ -921,6 +920,59 @@ class CondGANTrainer(object):
         ret_list = sess.run(feed_out, feed_dict)
     
         return ret_list
+
+    def eval_classifier(self):
+        config = tf.ConfigProto(allow_soft_placement=True)
+        with tf.Session(config=config) as sess:
+            with tf.device("/gpu:%d" % cfg.GPU_ID):
+                number_example_eval = self.dataset.test._num_examples
+                updates_per_epoch_eval = int(np.ceil(number_example_eval * 1.0 / self.batch_size))
+                if self.model_path.find('.ckpt') != -1:
+                    self.init_opt()
+                    epoch = 0
+                    #sess.run(tf.global_variables_initializer())
+                    print(">>> Model Random evaluation started")
+                    print(">>> Reading model parameters from %s" % self.model_path)
+                    saver = tf.train.Saver(tf.global_variables())
+                    saver.restore(sess, self.model_path)
+
+                    widgets = ["epoch #%d|" % epoch, Percentage(), Bar(), ETA()]
+                    pbar = ProgressBar(maxval=updates_per_epoch_eval, widgets=widgets)
+                    pbar.start()
+                    ### evaluate on test
+                    acc_list = list()
+                    for i in range(updates_per_epoch_eval):
+                        pbar.update(i)
+                        acc = self.eval_classifier_one_step(sess)
+                        acc_list.append(acc)
+                    ### calculate average acc over all batches
+                    acc_mat = np.array(acc_list)
+                    d_acc, dw_acc, hr_d_acc, hr_dw_acc = np.mean(acc_mat, axis=0)
+                    total_acc = (d_acc + dw_acc) / 2.0
+                    hr_total_acc = (hr_d_acc + hr_dw_acc) / 2.0
+                    ### collect and print summaries
+                    acc_sum = tf.Summary(value=[
+                        tf.Summary.Value(tag="d_acc_real", simple_value=d_acc), 
+                        tf.Summary.Value(tag="d_acc_wrong", simple_value=dw_acc),
+                        tf.Summary.Value(tag="d_acc_total", simple_value=total_acc),
+                        tf.Summary.Value(tag="hr_d_acc_real", simple_value=hr_d_acc),
+                        tf.Summary.Value(tag="hr_d_acc_wrong", simple_value=hr_dw_acc),
+                        tf.Summary.Value(tag="hr_d_acc_total", simple_value=hr_total_acc)])
+                    summary_writer.add_summary(acc_sum, epoch)
+                    dic_logs['d_acc'] = d_acc
+                    dic_logs['dw_acc'] = dw_acc
+                    dic_logs['hr_d_acc'] = hr_d_acc
+                    dic_logs['hr_dw_acc'] = hr_dw_acc
+                    dic_logs['total_acc'] = total_acc
+                    dic_logs['hr_total_acc'] = hr_total_acc
+                    log_line = "; ".join("%s: %s" %
+                                         (str(k), str(dic_logs[k]))
+                                         for k in dic_logs)
+                    print("Epoch %d | " % (epoch) + log_line)
+                    sys.stdout.flush()
+                else:
+                    print("Input a valid model path.")
+
 
     def train_classifier(self):
         config = tf.ConfigProto(allow_soft_placement=True)
@@ -984,7 +1036,7 @@ class CondGANTrainer(object):
                     acc_list = list()
                     for i in range(updates_per_epoch_eval):
                         pbar.update(i)
-                        acc = self.eval_classifier_one_step(discriminator_lr, sess)
+                        acc = self.eval_classifier_one_step(sess)
                         acc_list.append(acc)
                     acc_mat = np.array(acc_list)
                     d_acc, dw_acc, hr_d_acc, hr_dw_acc = np.mean(acc_mat, axis=0)

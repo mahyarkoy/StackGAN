@@ -7,7 +7,7 @@ Z_DIM: 100
 
 TRAIN:
     FLAG: False
-    PRETRAINED_MODEL: 'Data/classifier_logs/model_12000.ckpt'
+    PRETRAINED_MODEL: 'Data/birds_model_164000.ckpt'
     PRETRAINED_EPOCH: 1
     BATCH_SIZE: 100
     NUM_COPY: 4
@@ -26,5 +26,5 @@ GAN:
     GF_DIM: 128
 
 ZEROSHOT:
-    FLAG: True
+    FLAG: False
     SENT_PER_CLASS: 100

@@ -87,4 +87,5 @@ if __name__ == "__main__":
         ''' For every input text embedding/sentence in the
         training and test datasets, generate cfg.TRAIN.NUM_COPY
         images with randomness from noise z and conditioning augmentation.'''
-        algo.evaluate()
+        #algo.evaluate()
+        algo.eval_classifier()
