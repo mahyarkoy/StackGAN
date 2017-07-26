@@ -807,14 +807,14 @@ class CondGANTrainer(object):
                 choice = id_list
             else:
                 choice = np.random.choice(id_list, size=cfg.ZEROSHOT.SENT_PER_CLASS, replace=False)
-            sent_select += choice
+            sent_select += list(choice)
 
         ## select the chosen ids from embeddings, class_ids, and filenames
         sel_embeddings = embeddings_flat[sent_select,...]
         #embeddings_flat = sel_embeddings.reshape([sel_embeddings.shape[0]*sel_embeddings.shape[1], sel_embeddings.shape[2]])
         sel_class_ids = class_ids_extend[sent_select,...]
         #class_ids_extend = np.array([sel_class_ids[cid//sel_embeddings.shape[1]] for cid in range(embeddings_flat.shape[0])])
-        sel_caps = cap_list[sent_select]
+        sel_caps = [cap_list[si] for si in sent_select]
 
         print('>>> embeddings shape:')
         print(sel_embeddings.shape)
