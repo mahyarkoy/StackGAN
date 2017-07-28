@@ -925,6 +925,7 @@ class CondGANTrainer(object):
         config = tf.ConfigProto(allow_soft_placement=True)
         with tf.Session(config=config) as sess:
             with tf.device("/gpu:%d" % cfg.GPU_ID):
+                summary_writer = tf.summary.FileWriter(self.log_dir, sess.graph)
                 number_example_eval = self.dataset.test._num_examples
                 updates_per_epoch_eval = int(np.ceil(number_example_eval * 1.0 / self.batch_size))
                 if self.model_path.find('.ckpt') != -1:
@@ -959,6 +960,7 @@ class CondGANTrainer(object):
                         tf.Summary.Value(tag="hr_d_acc_wrong", simple_value=hr_dw_acc),
                         tf.Summary.Value(tag="hr_d_acc_total", simple_value=hr_total_acc)])
                     summary_writer.add_summary(acc_sum, epoch)
+                    dic_logs = {}
                     dic_logs['d_acc'] = d_acc
                     dic_logs['dw_acc'] = dw_acc
                     dic_logs['hr_d_acc'] = hr_d_acc

@@ -26,5 +26,5 @@ GAN:
     GF_DIM: 128
 
 ZEROSHOT:
-    FLAG: False
+    FLAG: True
     SENT_PER_CLASS: 100

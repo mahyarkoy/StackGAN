@@ -58,7 +58,10 @@ if __name__ == "__main__":
         mkdir_p(ckt_logs_dir)
     else:
         s_tmp = cfg.TRAIN.PRETRAINED_MODEL
-        ckt_logs_dir = s_tmp[:s_tmp.find('.ckpt')]
+        ckt_logs_dir = "ckt_logs/%s/%s_%s" % \
+            (cfg.DATASET_NAME, cfg.CONFIG_NAME, timestamp)
+        mkdir_p(ckt_logs_dir)
+        #ckt_logs_dir = s_tmp[:s_tmp.find('.ckpt')]
 
     model = CondGAN(
         lr_imsize=int(dataset.image_shape[0] / dataset.hr_lr_ratio),
